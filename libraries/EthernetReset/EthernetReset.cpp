@@ -23,7 +23,7 @@
  * Definitions
  ******************************************************************************/
 
-void EthernetReset::stdResponce(char* msg)
+void EthernetReset::stdResponse(char* msg, int refresh)
 {
 	_client.println("HTTP/1.1 200 OK");
 	_client.println("Content-Type: text/html");
@@ -31,7 +31,20 @@ void EthernetReset::stdResponce(char* msg)
 	_client.println();
 	_client.println("<!DOCTYPE HTML>");
 	_client.println("<html>");
-	_client.println(msg);
+	if (refresh) {
+		_client.print("<head><meta http-equiv=\"refresh\" content=\"");
+		_client.print(refresh);
+		_client.println("\" ></head>");
+	}
+	_client.println("<body>");
+	for (char* c = msg; *c != '\0'; c++) {
+		_client.print(*c);
+		if (*c == '\n') {
+			_client.print("<br>\n");
+		}
+	}
+	_client.println();
+	_client.println("</body>");
 	_client.println("</html>");
 }
 
@@ -47,11 +60,13 @@ void EthernetReset::watchdogReset()
 /******************************************************************************
  * Constructors / Destructors
  ******************************************************************************/
-EthernetReset::EthernetReset(int port)
+EthernetReset::EthernetReset(int port) :
+	_server(port),
+	_refresh(0)
 {
-	_server =  new EthernetServer(port);
 	String path = NetEEPROM.readPass();
 	path.toCharArray(_path, 20);
+	_status[0] = 0;
 }
 
 /******************************************************************************
@@ -64,7 +79,7 @@ void EthernetReset::begin()
 		Ethernet.begin(NetEEPROM.readMAC(), NetEEPROM.readIP(), NetEEPROM.readGW(),
 					   NetEEPROM.readGW(), NetEEPROM.readSN());
 
-		_server->begin();
+		_server.begin();
 		DBG(
 			Serial.print("Server is at ");
 			Serial.println(Ethernet.localIP());
@@ -76,13 +91,13 @@ void EthernetReset::begin()
 }
 
 void EthernetReset::check()
-{	
+{
 	/* 25 is the the maximum command lenth plus
 	 * the standart GET and HTTP prefix and postfix */
 	char http_req[strlen(_path) + 25];
-	_client = _server->available();
+	_client = _server.available();
 	if(_client) {
-		DBG(Serial.println("new reset client");)
+		DBG(Serial.println("new client connected");)
 		while(_client.connected()) {
 			if(_client.available()) {
 				char c;
@@ -98,19 +113,33 @@ void EthernetReset::check()
 				if(!strncmp(url, _path,strlen(_path))) {
 					url += (strlen(_path) + 1);
 					if(!strncmp(url, "reset", 5)) {
-						stdResponce("Arduino will be doing a normal reset in 2 seconds");
+						stdResponse("Arduino will be doing a normal reset in 2 seconds");
 						watchdogReset();
-					} else if(!strncmp(url,"reprogram", 9)) {
-						stdResponce("Arduino will reset for reprogramming in 2 seconds");
+					} else if(!strncmp(url, "reprogram", 9)) {
+						stdResponse("Arduino will reset for reprogramming in 2 seconds");
 						NetEEPROM.writeImgBad();
 						watchdogReset();
-					} else stdResponce("Wrong command");
-				} else stdResponce("Wrong path");
+					} else if(!strncmp(url, "status", 6)) {
+						stdResponse(_status, _refresh);
+					} else stdResponse("Wrong command");
+				} else stdResponse("Wrong path");
 				break;
 			}
 		}
 		delay(10);
 		_client.stop();
-		DBG(Serial.println("reset client disonnected");)
+		DBG(Serial.println("client disconnected");)
 	}
+}
+
+void EthernetReset::status(char* msg) {
+	size_t len = strlen(msg);
+	size_t maxlen = sizeof(_status) - 1;
+	if (len > maxlen) len = maxlen;
+	memcpy(_status, msg, len);
+	_status[len] = 0;
+}
+
+void EthernetReset::refresh(int r) {
+	_refresh = r;
 }

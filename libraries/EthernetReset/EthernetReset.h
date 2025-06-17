@@ -24,11 +24,13 @@
 class EthernetReset
 {
 	private:
-		EthernetServer* _server;
+		EthernetServer _server;
 		EthernetClient _client;
 		char _path[20];
+		char _status[256];
+		int _refresh;
 
-		void stdResponce(char* msg);
+		void stdResponse(char*, int = 0);
 		void watchdogReset();
 		void stop(void);
 
@@ -38,6 +40,9 @@ class EthernetReset
 
 		void begin(void);
 		void check(void);
+
+		void status(char*);
+		void refresh(int);
 };
 
 #endif
