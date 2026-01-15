@@ -19,33 +19,33 @@
 
 #include "EthernetReset.h"
 
+#include <avr/pgmspace.h>
+
 /******************************************************************************
  * Definitions
  ******************************************************************************/
 
-void EthernetReset::stdResponse(char* msg, int refresh)
+void EthernetReset::rawResponse(const char* msg)
 {
 	_client.println("HTTP/1.1 200 OK");
 	_client.println("Content-Type: text/html");
-	_client.println("Connnection: close");
+	_client.println("Connection: close");
 	_client.println();
-	_client.println("<!DOCTYPE HTML>");
-	_client.println("<html>");
-	if (refresh) {
-		_client.print("<head><meta http-equiv=\"refresh\" content=\"");
-		_client.print(refresh);
-		_client.println("\" ></head>");
+    _client.println(msg);
+}
+
+void EthernetReset::stdResponse()
+{
+    _client.println("HTTP/1.1 200 OK");
+    _client.println("Content-Type: text/html");
+    _client.println("Connection: close");
+    _client.println();
+    char c;
+    short _page_i = 0;
+	while ((c = pgm_read_byte_near(_main_page + _page_i++)) != '\0') {
+		_client.print(c);
 	}
-	_client.println("<body>");
-	for (char* c = msg; *c != '\0'; c++) {
-		_client.print(*c);
-		if (*c == '\n') {
-			_client.print("<br>\n");
-		}
-	}
-	_client.println();
-	_client.println("</body>");
-	_client.println("</html>");
+    _client.println();
 }
 
 void EthernetReset::watchdogReset()
@@ -60,13 +60,13 @@ void EthernetReset::watchdogReset()
 /******************************************************************************
  * Constructors / Destructors
  ******************************************************************************/
-EthernetReset::EthernetReset(int port) :
+EthernetReset::EthernetReset(int port, const char* page) :
 	_server(port),
-	_refresh(0)
+	_main_page(page),
+    _apicount(0)
 {
 	String path = NetEEPROM.readPass();
 	path.toCharArray(_path, 20);
-	_status[0] = 0;
 }
 
 /******************************************************************************
@@ -113,16 +113,29 @@ void EthernetReset::check()
 				if(!strncmp(url, _path,strlen(_path))) {
 					url += (strlen(_path) + 1);
 					if(!strncmp(url, "reset", 5)) {
-						stdResponse("Arduino will be doing a normal reset in 2 seconds");
+						rawResponse("Arduino will be doing a normal reset in 2 seconds");
 						watchdogReset();
 					} else if(!strncmp(url, "reprogram", 9)) {
-						stdResponse("Arduino will reset for reprogramming in 2 seconds");
+						rawResponse("Arduino will reset for reprogramming in 2 seconds");
 						NetEEPROM.writeImgBad();
 						watchdogReset();
 					} else if(!strncmp(url, "status", 6)) {
-						stdResponse(_status, _refresh);
-					} else stdResponse("Wrong command");
-				} else stdResponse("Wrong path");
+						stdResponse();
+					} else {
+                        char* raw_value = NULL;
+                        for(short i = 0; i < _apicount; i++) {
+                            if(!strncmp(url, _raw_apis[i], strlen(_raw_apis[i]))) {
+                                raw_value = _raw_values[i];
+                                break;
+                            }
+                        }
+                        if(raw_value != NULL) {
+                            rawResponse(raw_value);
+                        } else {
+                            rawResponse("Wrong command");
+                        }
+                    }
+				} else rawResponse("Wrong path");
 				break;
 			}
 		}
@@ -132,14 +145,15 @@ void EthernetReset::check()
 	}
 }
 
-void EthernetReset::status(char* msg) {
-	size_t len = strlen(msg);
-	size_t maxlen = sizeof(_status) - 1;
-	if (len > maxlen) len = maxlen;
-	memcpy(_status, msg, len);
-	_status[len] = 0;
+void EthernetReset::resetRawAPIs(void)
+{
+	_apicount = 0;
 }
 
-void EthernetReset::refresh(int r) {
-	_refresh = r;
+void EthernetReset::addRawAPI(const char* name, const char* value)
+{
+	if (_apicount >= MAX_RAW_APIS) return;
+	_raw_apis[_apicount] = name;
+	_raw_values[_apicount] = value;
+	_apicount++;
 }
